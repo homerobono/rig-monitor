@@ -1,0 +1,16 @@
+{
+  "lhm_url": "http://127.0.0.1:8085/data.json",
+  "poll_interval": 1,
+
+  "listen_host": "0.0.0.0",
+  "listen_port": 8600,
+
+  "db_path": "data/rigmon.db",
+  "raw_retention_days": 1,
+  "rollup_retention_days": 30,
+
+  "temp_alert_c": 85,
+
+  "collect_all": false,
+  "extra_metrics": {}
+}

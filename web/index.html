@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="mocha">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#11111b">
+<title>rig-monitor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2311111b'/><path d='M5 21l5-9 5 6 4-11 4 14' fill='none' stroke='%23cba6f7' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/></svg>">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>rig-monitor</h1>
+      <p class="sub" id="sourceLine">connecting…</p>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+    <button class="pill live" id="liveToggle" aria-pressed="true">
+      <span class="dot"></span><span id="liveLabel">Live</span>
+    </button>
+  </div>
+</header>
+
+<section class="kpis" id="kpis"></section>
+
+<section class="alertstrip" id="alertStrip" hidden></section>
+
+<main id="charts"></main>
+
+<footer class="foot">
+  <span id="footSpan">—</span>
+  <span id="footDb"></span>
+  <span id="footBucket"></span>
+</footer>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
