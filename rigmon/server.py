@@ -19,7 +19,8 @@ from .storage import Store
 log = logging.getLogger("rigmon.server")
 
 GZIP_MIN = 1024
-MAX_POINTS = 4000
+MAX_POINTS = 2000
+MAX_KEYS = 80
 
 RANGES = [
     {"id": "5m", "label": "5 min", "seconds": 300},
@@ -39,6 +40,9 @@ def _json_bytes(payload) -> bytes:
 class Handler(BaseHTTPRequestHandler):
     server_version = "rigmon"
     protocol_version = "HTTP/1.1"
+    # Keep-alive means one thread and one SQLite handle per connection. Without a
+    # timeout a client that opens a socket and goes quiet would pin both forever.
+    timeout = 30
 
     cfg: Config
     store: Store
@@ -68,17 +72,19 @@ class Handler(BaseHTTPRequestHandler):
     def _error(self, status: int, message: str):
         self._json({"error": message}, status)
 
-    @staticmethod
-    def _window(q: dict) -> tuple[int, int]:
+    def _window(self, q: dict) -> tuple[int, int]:
         now = int(time.time())
+        # Nothing older than the rollup retention exists, so a wider window would only
+        # buy an expensive scan of the whole table.
+        longest = self.store.rollup_retention
         if "range" in q:
-            span = max(60, int(float(q["range"][0])))
+            span = min(longest, max(60, int(float(q["range"][0]))))
             return now - span, now
         t1 = int(float(q.get("to", [now])[0]))
         t0 = int(float(q.get("from", [t1 - 3600])[0]))
         if t0 >= t1:
             t0 = t1 - 60
-        return t0, t1
+        return max(t0, t1 - longest), t1
 
     # ------------------------------------------------------------------- routing
     def do_GET(self):
@@ -146,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"sensors": self.collector.sensor_list()})
 
         if route == "series":
-            keys = [k for k in ",".join(q.get("keys", [])).split(",") if k]
+            keys = [k for k in ",".join(q.get("keys", [])).split(",") if k][:MAX_KEYS]
             if not keys:
                 keys = [m.key for m in metrics.CATALOG if m.default_on]
             t0, t1 = self._window(q)
@@ -155,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.store.query(keys, t0, t1, points, aggs))
 
         if route == "summary":
-            keys = [k for k in ",".join(q.get("keys", [])).split(",") if k]
+            keys = [k for k in ",".join(q.get("keys", [])).split(",") if k][:MAX_KEYS]
             if not keys:
                 keys = metrics.temp_keys()
             t0, t1 = self._window(q)

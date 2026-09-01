@@ -106,21 +106,33 @@ class Collector(threading.Thread):
                 with self._lock:
                     self.ok = False
                     self.last_error = f"{type(e).__name__}: {e}"
-                log.exception("collector: unexpected failure")
+                # Rate limited: a fault that repeats every second must not fill the disk
+                # with tracebacks.
+                if failures in (1, 5) or failures % 60 == 0:
+                    log.exception("collector: unexpected failure")
 
             now = time.time()
-            try:
-                if now >= next_rollup:
+            # Each deadline moves before the work runs, so a persistent failure retries
+            # on the normal schedule instead of spinning.
+            if now >= next_rollup:
+                next_rollup = now + ROLLUP_EVERY
+                try:
                     self.store.rollup(int(now))
-                    next_rollup = now + ROLLUP_EVERY
-                if now >= next_prune:
+                except Exception:
+                    log.exception("collector: rollup failed")
+            if now >= next_prune:
+                next_prune = now + PRUNE_EVERY
+                try:
                     removed_raw, removed_agg = self.store.prune(int(now))
                     if removed_raw or removed_agg:
                         log.info("pruned %d raw / %d rollup rows", removed_raw, removed_agg)
-                    next_prune = now + PRUNE_EVERY
-            except Exception:
-                log.exception("collector: maintenance failed")
+                except Exception:
+                    log.exception("collector: prune failed")
 
             delay = interval if not failures else min(MAX_BACKOFF, interval * 2 ** min(failures, 4))
             elapsed = time.time() - started
-            self._stop.wait(max(0.05, delay - elapsed))
+            # Idle at least as long as the poll itself took. If the rig is loaded enough
+            # that LibreHardwareMonitor answers slowly, this keeps us from issuing
+            # back-to-back requests and never lets us use more than half of it.
+            floor = min(elapsed, MAX_BACKOFF)
+            self._stop.wait(max(0.05, floor, delay - elapsed))

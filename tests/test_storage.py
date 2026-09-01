@@ -1,9 +1,10 @@
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 
-from rigmon.storage import Store
+from rigmon.storage import READERS, Store
 
 
 class StoreTest(unittest.TestCase):
@@ -20,6 +21,10 @@ class StoreTest(unittest.TestCase):
     def fill(self, start, count, step=5, key="cpu.temp", fn=lambda i: 50.0 + i):
         for i in range(count):
             self.store.write(start + i * step, {key: fn(i)})
+
+    def sql(self, query, *params):
+        with self.store._reader() as db:
+            return db.execute(query, params).fetchall()
 
 
 class TestQuery(StoreTest):
@@ -54,8 +59,7 @@ class TestRollup(StoreTest):
         start = self.now - 600
         self.fill(start, 120)                 # 10 minutes at 5 s
         self.store.rollup(self.now)
-        rows = self.store._r.execute(
-            "SELECT bucket, total/n, hi, n FROM sample_1m ORDER BY bucket").fetchall()
+        rows = self.sql("SELECT bucket, total/n, hi, n FROM sample_1m ORDER BY bucket")
         self.assertEqual(len(rows), 10)
         self.assertTrue(all(n == 12 for _, _, _, n in rows))
         self.assertAlmostEqual(rows[0][1], 50 + 5.5)      # mean of 50..61
@@ -65,7 +69,7 @@ class TestRollup(StoreTest):
         self.fill(self.now - 600, 120)
         self.store.rollup(self.now)
         self.store.rollup(self.now)
-        total_n = self.store._r.execute("SELECT sum(n) FROM sample_1m").fetchone()[0]
+        total_n = self.sql("SELECT sum(n) FROM sample_1m")[0][0]
         self.assertEqual(total_n, 120)
 
     def test_long_range_reads_from_rollups(self):
@@ -96,6 +100,39 @@ class TestSummary(StoreTest):
         self.assertEqual(s["seconds_above"], 10 * 5)
         self.assertAlmostEqual(s["episodes"][0]["peak"], 88.0)
 
+    def test_rolled_up_window_matches_a_full_raw_scan(self):
+        """The two-phase scan reads rollups first, so it must not lose any detail."""
+        base = self.now - 3600
+        for i in range(720):
+            temp = 70.0 + (i % 7)
+            if 100 <= i < 103 or i == 400:      # one burst plus a single-sample spike
+                temp = 92.0
+            self.store.write(base + i * 5, {"gpu.temp_hotspot": temp})
+
+        raw_only = self.store.summarize(["gpu.temp_hotspot"], base, self.now, 85.0)
+        self.store.rollup(self.now)             # now the same window is rollup-backed
+        two_phase = self.store.summarize(["gpu.temp_hotspot"], base, self.now, 85.0)
+
+        self.assertEqual(two_phase, raw_only)
+        s = two_phase["gpu.temp_hotspot"]
+        self.assertEqual(s["seconds_above"], 4 * 5)     # a lone 5 s spike is still seen
+        self.assertEqual(s["episode_count"], 2)
+        self.assertEqual(s["resolution"], 5)
+
+    def test_falls_back_to_minute_resolution_without_raw(self):
+        base = self.now - 3600
+        for i in range(120):
+            self.store.write(base + i * 5, {"gpu.temp_hotspot": 90.0 if i < 12 else 70.0})
+        self.store.rollup(self.now)
+        self.store._w.execute("DELETE FROM sample")     # as retention would eventually do
+        self.store._w.commit()
+        self.store._coverage_cache = None
+
+        s = self.store.summarize(["gpu.temp_hotspot"], base, self.now, 85.0)["gpu.temp_hotspot"]
+        self.assertAlmostEqual(s["max"], 90.0)
+        self.assertEqual(s["resolution"], 60)
+        self.assertEqual(s["seconds_above"], 60)
+
     def test_quiet_window_reports_nothing(self):
         self.fill(self.now - 300, 60, fn=lambda i: 60.0)
         res = self.store.summarize(["cpu.temp"], self.now - 300, self.now, 85.0)
@@ -112,8 +149,7 @@ class TestRetention(StoreTest):
         raw_removed, agg_removed = self.store.prune(self.now)
         self.assertEqual(raw_removed, 60)
         self.assertEqual(agg_removed, 0)
-        self.assertIsNotNone(
-            self.store._r.execute("SELECT count(*) FROM sample_1m").fetchone()[0])
+        self.assertIsNotNone(self.sql("SELECT count(*) FROM sample_1m")[0][0])
 
     def test_coverage_spans_both_tables(self):
         self.fill(self.now - 300, 60)
@@ -121,6 +157,51 @@ class TestRetention(StoreTest):
         cov = self.store.coverage()
         self.assertLessEqual(cov["first"], self.now - 295)
         self.assertGreaterEqual(cov["last"], self.now - 300)
+
+
+class TestConcurrency(StoreTest):
+    """The collector writes while several dashboards read; nothing may stall or leak."""
+
+    def test_readers_and_writer_do_not_deadlock(self):
+        self.fill(self.now - 3600, 720)
+        self.store.rollup(self.now)
+        stop = threading.Event()
+        errors: list = []
+
+        def writer():
+            ts = self.now
+            while not stop.is_set():
+                try:
+                    self.store.write(ts, {"cpu.temp": 60.0, "gpu.temp": 55.0})
+                    ts += 1
+                    if ts % 30 == 0:
+                        self.store.rollup(ts)
+                except Exception as e:
+                    errors.append(repr(e))
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    self.store.query(["cpu.temp", "gpu.temp"], self.now - 3600, self.now, 300)
+                    self.store.summarize(["cpu.temp"], self.now - 3600, self.now, 85.0)
+                    self.store.coverage(ttl=0)
+                    self.store.latest()
+                except Exception as e:
+                    errors.append(repr(e))
+
+        threads = [threading.Thread(target=writer)]
+        threads += [threading.Thread(target=reader) for _ in range(8)]
+        for t in threads:
+            t.start()
+        time.sleep(2.0)
+        stop.set()
+        for t in threads:
+            t.join(timeout=15)
+
+        self.assertFalse([t for t in threads if t.is_alive()], "a thread failed to finish")
+        self.assertEqual(errors[:3], [])
+        # Eight concurrent readers must not leave eight connections behind.
+        self.assertLessEqual(self.store._pool.qsize(), READERS)
 
 
 if __name__ == "__main__":

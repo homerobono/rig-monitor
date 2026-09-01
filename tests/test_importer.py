@@ -48,10 +48,14 @@ class TestImporter(unittest.TestCase):
         self.store.close()
         self.dir.cleanup()
 
+    def sql(self, query, *params):
+        with self.store._reader() as db:
+            return db.execute(query, params).fetchall()
+
     def peaks(self, key="cpu.temp"):
-        return self.store._r.execute(
+        return self.sql(
             "SELECT n, total/n, hi FROM sample_1m s JOIN metric m ON m.id = s.metric_id "
-            "WHERE m.key = ? ORDER BY bucket", (key,)).fetchall()
+            "WHERE m.key = ? ORDER BY bucket", key)
 
     def test_maps_columns_to_metric_keys(self):
         path = write_log(self.root, self.day, 120)
@@ -90,8 +94,8 @@ class TestImporter(unittest.TestCase):
         import_csv(self.store, path)
         again = import_csv(self.store, path)
         self.assertTrue(again["skipped"])
-        total = self.store._r.execute("SELECT sum(n) FROM sample_1m s JOIN metric m "
-                                      "ON m.id = s.metric_id WHERE m.key='cpu.temp'").fetchone()[0]
+        total = self.sql("SELECT sum(n) FROM sample_1m s JOIN metric m "
+                         "ON m.id = s.metric_id WHERE m.key='cpu.temp'")[0][0]
         self.assertEqual(total, 60)
 
     def test_imported_history_answers_the_85_question(self):

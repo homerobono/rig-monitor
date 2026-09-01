@@ -128,6 +128,52 @@ If LibreHardwareMonitor restarts or stops, the collector keeps retrying with a b
 the dashboard header says the source is unreachable, and the gap shows as a break in the
 lines rather than a flat fake value.
 
+## Cost on a machine that is busy doing something else
+
+This runs alongside games, so the budget matters. Measured live against the rig at 1 Hz,
+and with `tools/bench.py` / `tools/soak.py` against a worst-case database — 42 metrics,
+1 Hz, a full 12 hours, 1.8M raw rows:
+
+| | Cost |
+| --- | --- |
+| Collector alone | **~1 % of one core** |
+| With dashboards open on the 12-hour view | **~1.4 % of one core** |
+| Resident memory | **~48 MB** with a full 12 h database, and it comes back down when clients disconnect |
+| Per poll (parse 163 sensors + write 42 rows) | **0.9 ms** |
+| Chart refresh, 12 h range | 38 ms |
+| 85 °C scan, 12 h range | 3.5 ms, or 114 ms in the absurd case of being above 85 °C for all 12 hours |
+| Sampling accuracy | 1.00–1.01 s between polls |
+
+On a 7800X3D that is roughly 0.09 % of the CPU, spread over 1-second slices rather than
+taken in one lump.
+
+**The largest cost is not this process.** A full sensor read costs
+LibreHardwareMonitor about **47 ms** — measured as the difference between `/data.json`
+and a trivial request on the same connection, so it is an upper bound that still
+includes shipping 42 KB. At 1 Hz that is roughly 5 % of one core spent inside
+LibreHardwareMonitor reading Super I/O ports and calling NVML, several times what
+rig-monitor spends on itself. If you want that back, set `poll_interval` to `2`: it
+halves the sensor reads and the disk growth, and the charts barely change.
+
+Some specifics behind those numbers, since "lightweight" is easy to claim:
+
+- **Long ranges never touch raw samples.** Anything past ~2 hours is answered from the
+  1-minute rollups, which is 60× less data for the same picture. Excursion timing stays
+  second-accurate because the rollups are used only to *find* the minutes that crossed
+  the threshold, and raw rows are read back inside those minutes alone.
+- **Read connections are pooled**, four of them, with a pinned 2 MB page cache each. A
+  handle per HTTP thread made memory climb with every client that reconnected.
+- **Pruning is chunked**, so expiring a backlog after downtime cannot take a long write
+  lock or inflate the WAL.
+- **The poller idles at least as long as its last request took**, so a rig loaded enough
+  to make LibreHardwareMonitor slow can never be hit with back-to-back requests.
+- SQLite runs in WAL mode: readers never block the writer, so a slow chart query cannot
+  stall sampling. There is one write lock and no code path takes it re-entrantly or
+  takes a second lock underneath it, so there is no lock ordering to get wrong.
+
+`python tools/bench.py` and `python tools/soak.py` reproduce all of the above on any
+machine; the soak reports memory, threads and descriptors over time.
+
 ## Security
 
 The HTTP API is read-only and unauthenticated. The installer scopes the firewall rule to
@@ -143,6 +189,8 @@ python tools/fake_lhm.py --port 8085 --speed 30   # simulated 7800X3D + 4070 Ti 
 python tools/seed_demo.py --hours 30              # plausible history to draw
 python -m rigmon serve --port 8600
 python -m unittest discover -s tests -t .
+python tools/bench.py                             # query and poll costs, worst case
+python tools/soak.py --minutes 10 --churn         # memory/threads/fds under load
 ```
 
 `tools/fake_lhm.py --locale pt` emits comma decimal separators to exercise the
