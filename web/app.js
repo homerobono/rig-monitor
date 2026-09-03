@@ -37,8 +37,6 @@ const CHART_SPECS = [
     dual: true, threshold: true,
     series: [
       { key: 'cpu.temp', scale: 'c', color: COL.red, width: 2 },
-      { key: 'cpu.temp_ccd1', scale: 'c', color: COL.maroon, off: true },
-      { key: 'board.temp_vrm', scale: 'c', color: COL.peach, off: true },
       { key: 'cpu.load', scale: 'p', color: COL.mauve, fill: true },
       { key: 'fan.cpu', scale: 'p', color: COL.teal, dash: [5, 3] },
       { key: 'fan.pump', scale: 'p', color: COL.sky, dash: [5, 3], off: true },
@@ -51,7 +49,6 @@ const CHART_SPECS = [
     series: [
       { key: 'gpu.temp_hotspot', scale: 'c', color: COL.mauve, width: 2 },
       { key: 'gpu.temp', scale: 'c', color: COL.blue, width: 2 },
-      { key: 'gpu.temp_vram', scale: 'c', color: COL.lavender, off: true },
       { key: 'gpu.load', scale: 'p', color: COL.peach, fill: true },
       { key: 'fan.gpu1', scale: 'p', color: COL.teal, dash: [5, 3] },
       { key: 'fan.gpu2', scale: 'p', color: COL.green, dash: [5, 3], off: true },
@@ -89,9 +86,19 @@ const KPI_SPECS = [
   ['gpu.load', COL.peach, 100],
   ['fan.gpu1', COL.green, 100],
   ['@sysfans', COL.sky, 100],
-  ['gpu.power', COL.blue, 320],
 ];
-const SYS_FAN_KEYS = ['fan.sys1', 'fan.sys2', 'fan.sys3', 'fan.sys4', 'fan.sys5', 'fan.sys6'];
+const SYS_FAN_KEYS = ['fan.sys1', 'fan.sys2', 'fan.sys3', 'fan.sys4'];
+
+/* Hidden from every chart, legend, and KPI tile. */
+const DISMISSED = new Set([
+  'gpu.power',
+  'cpu.temp_ccd1', 'board.temp_vrm',
+  'gpu.temp_vram', 'gpu.vram_load',
+  'board.temp_socket', 'board.temp_sys', 'board.temp_chipset',
+  'fan.sys5', 'fan.sys6', 'fan.ezconnect',
+  'rpm.sys5', 'rpm.sys6', 'rpm.ezconnect',
+  'gpu.load_memctl',
+]);
 
 /* ---------------------------------------------------------------- plumbing */
 async function api(path, params) {
@@ -138,7 +145,7 @@ function gradientFill(color) {
     const { top, height } = u.bbox;
     if (!cache || cache.h !== height) {
       const g = u.ctx.createLinearGradient(0, top, 0, top + height);
-      g.addColorStop(0, color + '3a');
+      g.addColorStop(0, color + '57'); // 50% more opaque than 3a
       g.addColorStop(1, color + '00');
       cache = { h: height, g };
     }
@@ -210,11 +217,11 @@ const UNIT_OF_SCALE = { c: '°C', p: '%', w: 'W', r: 'RPM', m: 'MHz' };
 function seriesForSpec(spec) {
   if (spec.series) {
     return spec.series
-      .filter((s) => state.metrics[s.key] && state.metrics[s.key].available)
+      .filter((s) => state.metrics[s.key] && state.metrics[s.key].available && !DISMISSED.has(s.key))
       .map((s) => ({ ...s, meta: state.metrics[s.key] }));
   }
   return Object.values(state.metrics)
-    .filter((m) => m.group === spec.group && m.available)
+    .filter((m) => m.group === spec.group && m.available && !DISMISSED.has(m.key))
     .map((m) => ({
       key: m.key, scale: spec.scale, color: m.color, meta: m,
       off: !m.default_on, width: 1.5,
@@ -371,7 +378,7 @@ function neededKeys() {
   for (const c of state.charts) c.keys.forEach((k) => keys.add(k));
   KPI_SPECS.forEach(([k]) => { if (!k.startsWith('@')) keys.add(k); });
   SYS_FAN_KEYS.forEach((k) => keys.add(k));
-  return [...keys].filter((k) => state.metrics[k] && state.metrics[k].available);
+  return [...keys].filter((k) => state.metrics[k] && state.metrics[k].available && !DISMISSED.has(k));
 }
 
 function currentWindow() {
