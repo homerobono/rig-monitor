@@ -183,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
         if not target.is_file():
             return self._error(404, "not found")
         ctype, _ = mimetypes.guess_type(str(target))
-        cache = "no-cache" if target.suffix in (".html",) else "public, max-age=3600"
+        cache = "no-cache" if target.suffix in (".html", ".js", ".css") else "public, max-age=3600"
         self._send(target.read_bytes(), ctype or "application/octet-stream", cache=cache)
 
 
