@@ -98,7 +98,7 @@ const DISMISSED = new Set([
   'cpu.temp_ccd1', 'board.temp_vrm',
   'gpu.temp_vram', 'gpu.vram_load',
   'board.temp_socket', 'board.temp_sys', 'board.temp_chipset',
-  'fan.sys5', 'fan.sys6', 'fan.ezconnect',
+  'fan.sys5', 'fan.sys6', 'fan.ezconnect', 'fan.chipset',
   'rpm.sys5', 'rpm.sys6', 'rpm.ezconnect',
   'gpu.load_memctl', 'cpu.load_max',
 ]);
