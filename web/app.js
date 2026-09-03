@@ -40,6 +40,7 @@ const CHART_SPECS = [
       { key: 'cpu.load', scale: 'p', color: COL.mauve, fill: true },
       { key: 'fan.cpu', scale: 'p', color: COL.teal, dash: [5, 3] },
       { key: 'fan.pump', scale: 'p', color: COL.sky, dash: [5, 3], off: true },
+      { key: 'fan.sys1', scale: 'p', color: COL.green, dash: [5, 3] },
     ],
   },
   {
@@ -52,6 +53,8 @@ const CHART_SPECS = [
       { key: 'gpu.load', scale: 'p', color: COL.peach, fill: true },
       { key: 'fan.gpu1', scale: 'p', color: COL.teal, dash: [5, 3] },
       { key: 'fan.gpu2', scale: 'p', color: COL.green, dash: [5, 3], off: true },
+      { key: 'fan.pump', scale: 'p', color: COL.sky, dash: [5, 3] },
+      { key: 'fan.sys2', scale: 'p', color: COL.sapphire, dash: [5, 3] },
     ],
   },
   {
@@ -86,18 +89,18 @@ const KPI_SPECS = [
   ['gpu.load', COL.peach, 100],
   ['fan.gpu1', COL.green, 100],
   ['@sysfans', COL.sky, 100],
+  ['gpu.power', COL.blue, 320],
 ];
 const SYS_FAN_KEYS = ['fan.sys1', 'fan.sys2', 'fan.sys3', 'fan.sys4'];
 
 /* Hidden from every chart, legend, and KPI tile. */
 const DISMISSED = new Set([
-  'gpu.power',
   'cpu.temp_ccd1', 'board.temp_vrm',
   'gpu.temp_vram', 'gpu.vram_load',
   'board.temp_socket', 'board.temp_sys', 'board.temp_chipset',
   'fan.sys5', 'fan.sys6', 'fan.ezconnect',
   'rpm.sys5', 'rpm.sys6', 'rpm.ezconnect',
-  'gpu.load_memctl',
+  'gpu.load_memctl', 'cpu.load_max',
 ]);
 
 /* ---------------------------------------------------------------- plumbing */

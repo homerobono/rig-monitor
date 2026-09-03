@@ -189,7 +189,7 @@ CATALOG: list[Metric] = [
            fallback_ids=("/amdcpu/0/power/0",), short="CPU"),
     Metric("gpu.power", "GPU Package", "W", "power", C["blue"],
            (Match(GPU, "Power", "GPU Package"),),
-           fallback_ids=("/gpu-nvidia/0/power/0",), default_on=False, short="GPU"),
+           fallback_ids=("/gpu-nvidia/0/power/0",), short="GPU"),
 
     # ---------------------------------------------------------------------- clocks
     Metric("cpu.clock", "CPU Cores (avg)", "MHz", "clock", C["red"],
