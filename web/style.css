@@ -123,13 +123,18 @@ html, body {
 /* -------------------------------------------------------------------- KPIs */
 .kpis {
   display: grid; gap: var(--gap);
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.25fr) minmax(420px, 2fr);
   padding: var(--gap) clamp(12px, 2.5vw, 28px) 0;
   max-width: var(--maxw); margin-inline: auto; width: 100%;
 }
-@media (max-width: 1180px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 900px)  { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 560px)  { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1050px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-fans { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .kpis { grid-template-columns: 1fr; }
+  .kpi-fans { grid-column: auto; }
+}
 .kpi {
   position: relative; overflow: hidden;
   padding: 12px 14px 13px;
@@ -151,18 +156,45 @@ html, body {
   font-family: var(--mono); letter-spacing: -.02em;
 }
 .kpi .k-value .u { font-size: 13px; color: var(--muted); margin-left: 2px; font-weight: 500; }
-.kpi .k-peak { font-size: 11px; color: var(--muted); margin-top: 3px; }
-.kpi .k-peak b { color: var(--subtext); font-weight: 600; }
+.kpi .k-value-row {
+  display: flex; align-items: baseline; gap: 14px; min-width: 0;
+}
+.kpi .k-secondary {
+  color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  white-space: nowrap;
+}
+.kpi .k-secondary b {
+  color: var(--subtext); font: 600 15px/1 var(--mono); letter-spacing: -.02em; margin-left: 4px;
+}
+.kpi .k-secondary .u { font-size: 10px; text-transform: none; letter-spacing: 0; }
 .kpi.hot .k-value { color: var(--red); }
+.kpi.hot .k-secondary b { color: var(--red); }
 .kpi.warm .k-value { color: var(--peach); }
+.kpi.warm .k-secondary b { color: var(--peach); }
+.kpi .k-bar-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 8px;
+}
+.kpi .k-bar-label {
+  width: 48px; flex: none; color: var(--muted); font-size: 10.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .kpi .k-bar {
-  margin-top: 9px; height: 3px; border-radius: 2px;
+  position: relative; flex: 1 1 auto; min-width: 40px; height: 5px; border-radius: 3px;
   background: color-mix(in srgb, var(--overlay) 50%, transparent); overflow: hidden;
 }
 .kpi .k-bar i {
-  display: block; height: 100%; border-radius: 2px;
-  background: var(--accent); transition: width .5s cubic-bezier(.4,0,.2,1);
+  position: absolute; inset: 0 auto 0 0; display: block; height: 100%; border-radius: 3px;
+  transition: width .5s cubic-bezier(.4,0,.2,1);
 }
+.kpi .k-bar-peak {
+  background: color-mix(in srgb, var(--bar-accent) 48%, var(--base)); z-index: 1;
+}
+.kpi .k-bar-current { background: var(--bar-accent); z-index: 2; }
+.kpi .k-peak {
+  width: 66px; flex: none; color: color-mix(in srgb, var(--bar-accent) 62%, var(--muted));
+  font: 600 10.5px/1 var(--mono); white-space: nowrap;
+}
+.kpi .k-fan-bars { margin-top: 4px; }
 
 /* ------------------------------------------------------------ alert strip */
 .alertstrip {

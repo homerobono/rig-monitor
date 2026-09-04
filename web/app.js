@@ -78,30 +78,14 @@ const CHART_SPECS = [
   },
 ];
 
-/* KPI tiles: [key, accent, scaleMax] */
-const KPI_SPECS = [
-  ['cpu.temp', COL.red, 100],
-  ['cpu.load', COL.mauve, 100],
-  ['fan.cpu', COL.teal, 100],
-  ['cpu.power', COL.maroon, 160],
-  ['gpu.temp_hotspot', COL.mauve, 110],
-  ['gpu.temp', COL.blue, 100],
-  ['gpu.load', COL.peach, 100],
-  ['fan.gpu1', COL.green, 100],
-  ['@sysfans', COL.sky, 100],
-  ['gpu.power', COL.blue, 320],
+const CARD_KEYS = ['cpu.temp', 'gpu.temp', 'gpu.temp_hotspot'];
+const CASE_FANS = [
+  ['fan.pump', 'Pump', COL.pink],
+  ['fan.sys1', 'Sys 1', COL.green],
+  ['fan.sys2', 'Sys 2', COL.teal],
+  ['fan.sys3', 'Sys 3', COL.sky],
+  ['fan.sys4', 'Sys 4', COL.sapphire],
 ];
-const SYS_FAN_KEYS = ['fan.sys1', 'fan.sys2', 'fan.sys3', 'fan.sys4'];
-
-/* Hidden from every chart, legend, and KPI tile. */
-const DISMISSED = new Set([
-  'cpu.temp_ccd1', 'board.temp_vrm',
-  'gpu.temp_vram', 'gpu.vram_load',
-  'board.temp_socket', 'board.temp_sys', 'board.temp_chipset',
-  'fan.sys5', 'fan.sys6', 'fan.ezconnect', 'fan.chipset',
-  'rpm.sys5', 'rpm.sys6', 'rpm.ezconnect',
-  'gpu.load_memctl', 'cpu.load_max',
-]);
 
 /* ---------------------------------------------------------------- plumbing */
 async function api(path, params) {
@@ -220,11 +204,11 @@ const UNIT_OF_SCALE = { c: '°C', p: '%', w: 'W', r: 'RPM', m: 'MHz' };
 function seriesForSpec(spec) {
   if (spec.series) {
     return spec.series
-      .filter((s) => state.metrics[s.key] && state.metrics[s.key].available && !DISMISSED.has(s.key))
+      .filter((s) => state.metrics[s.key] && state.metrics[s.key].available)
       .map((s) => ({ ...s, meta: state.metrics[s.key] }));
   }
   return Object.values(state.metrics)
-    .filter((m) => m.group === spec.group && m.available && !DISMISSED.has(m.key))
+    .filter((m) => m.group === spec.group && m.available)
     .map((m) => ({
       key: m.key, scale: spec.scale, color: m.color, meta: m,
       off: !m.default_on, width: 1.5,
@@ -379,9 +363,9 @@ function rebuildCharts() {
 function neededKeys() {
   const keys = new Set();
   for (const c of state.charts) c.keys.forEach((k) => keys.add(k));
-  KPI_SPECS.forEach(([k]) => { if (!k.startsWith('@')) keys.add(k); });
-  SYS_FAN_KEYS.forEach((k) => keys.add(k));
-  return [...keys].filter((k) => state.metrics[k] && state.metrics[k].available && !DISMISSED.has(k));
+  CARD_KEYS.forEach((k) => keys.add(k));
+  CASE_FANS.forEach(([k]) => keys.add(k));
+  return [...keys].filter((k) => state.metrics[k] && state.metrics[k].available);
 }
 
 function currentWindow() {
@@ -476,52 +460,81 @@ async function loadSummary() {
 }
 
 /* --------------------------------------------------------------- rendering */
+const barMarkup = (key, label, accent) => `
+  <div class="k-bar-row" data-bar-key="${key}" style="--bar-accent:${accent}">
+    ${label ? `<span class="k-bar-label">${label}</span>` : ''}
+    <div class="k-bar">
+      <i class="k-bar-peak" data-peak-fill></i>
+      <i class="k-bar-current" data-current-fill></i>
+    </div>
+    <span class="k-peak" data-peak title="Peak value"></span>
+  </div>`;
+
+function metricValue(values, key) {
+  return values[key] ? values[key].value : null;
+}
+
+function formatValue(value, unit) {
+  return value == null ? '—' : `${fmtNum(value, unit)}${unit === '%' ? '%' : ' ' + unit}`;
+}
+
+function updateBar(host, values, key, scaleMax) {
+  const row = host.querySelector(`[data-bar-key="${CSS.escape(key)}"]`);
+  const meta = state.metrics[key];
+  if (!row || !meta) return;
+  const value = metricValue(values, key);
+  const peak = state.summary[key] ? state.summary[key].max : null;
+  const width = (v) => v == null ? 0 : Math.min(100, Math.max(0, (v / scaleMax) * 100));
+  row.querySelector('[data-current-fill]').style.width = `${width(value)}%`;
+  row.querySelector('[data-peak-fill]').style.width = `${width(peak)}%`;
+  row.querySelector('[data-peak]').textContent = peak == null ? '' : `^ ${formatValue(peak, meta.unit)}`;
+}
+
+function setTemperatureState(card, temperatures) {
+  const hottest = temperatures.filter((v) => v != null).reduce((max, v) => Math.max(max, v), -Infinity);
+  card.classList.toggle('hot', hottest >= state.threshold);
+  card.classList.toggle('warm', hottest >= state.threshold - 10 && hottest < state.threshold);
+}
+
 function renderKpis(values) {
   const host = $('#kpis');
   if (!host.children.length) {
-    host.innerHTML = KPI_SPECS.map(([key, accent]) => {
-      const m = key === '@sysfans'
-        ? { label: 'System fans', unit: '%' }
-        : state.metrics[key];
-      if (!m) return '';
-      return `<article class="kpi" data-key="${key}" style="--accent:${accent}">
-        <div class="k-label">${m.label}</div>
-        <div class="k-value"><span data-v>—</span><span class="u">${m.unit === '%' ? '%' : ' ' + m.unit}</span></div>
-        <div class="k-peak" data-peak></div>
-        <div class="k-bar"><i style="width:0"></i></div>
+    host.innerHTML = `
+      <article class="kpi" data-card="cpu" style="--accent:${COL.red}">
+        <div class="k-label">CPU</div>
+        <div class="k-value"><span data-v="cpu.temp">—</span><span class="u"> °C</span></div>
+        ${barMarkup('cpu.temp', '', COL.red)}
+      </article>
+      <article class="kpi" data-card="gpu" style="--accent:${COL.blue}">
+        <div class="k-label">GPU</div>
+        <div class="k-value-row">
+          <div class="k-value"><span data-v="gpu.temp">—</span><span class="u"> °C</span></div>
+          <div class="k-secondary"><span>Hotspot</span><b data-v="gpu.temp_hotspot">—</b><span class="u"> °C</span></div>
+        </div>
+        ${barMarkup('gpu.temp', 'Core', COL.blue)}
+        ${barMarkup('gpu.temp_hotspot', 'Hotspot', COL.mauve)}
+      </article>
+      <article class="kpi kpi-fans" data-card="fans" style="--accent:${COL.sky}">
+        <div class="k-label">System fans</div>
+        <div class="k-fan-bars">
+          ${CASE_FANS.map(([key, label, accent]) => barMarkup(key, label, accent)).join('')}
+        </div>
       </article>`;
-    }).join('');
   }
 
-  for (const [key, , scaleMax] of KPI_SPECS) {
-    const el = host.querySelector(`[data-key="${CSS.escape(key)}"]`);
-    if (!el) continue;
-    const meta = key === '@sysfans' ? { unit: '%', group: 'fan' } : state.metrics[key];
-    if (!meta) continue;
+  const cpu = metricValue(values, 'cpu.temp');
+  const gpu = metricValue(values, 'gpu.temp');
+  const hotspot = metricValue(values, 'gpu.temp_hotspot');
+  host.querySelector('[data-v="cpu.temp"]').textContent = fmtNum(cpu, '°C');
+  host.querySelector('[data-v="gpu.temp"]').textContent = fmtNum(gpu, '°C');
+  host.querySelector('[data-v="gpu.temp_hotspot"]').textContent = fmtNum(hotspot, '°C');
 
-    let value = null;
-    let peak = null;
-    if (key === '@sysfans') {
-      const live = SYS_FAN_KEYS.map((k) => values[k] && values[k].value).filter((v) => v != null);
-      if (live.length) value = live.reduce((a, b) => a + b, 0) / live.length;
-      const peaks = SYS_FAN_KEYS.map((k) => state.summary[k] && state.summary[k].max)
-        .filter((v) => v != null);
-      if (peaks.length) peak = Math.max(...peaks);
-    } else {
-      value = values[key] ? values[key].value : null;
-      peak = state.summary[key] ? state.summary[key].max : null;
-    }
-
-    el.querySelector('[data-v]').textContent = fmtNum(value, meta.unit);
-    el.querySelector('.k-bar i').style.width =
-      value == null ? '0' : `${Math.min(100, (value / scaleMax) * 100)}%`;
-    el.querySelector('[data-peak]').innerHTML =
-      peak == null ? '' : `peak <b>${fmtNum(peak, meta.unit)}${meta.unit === '%' ? '%' : ' ' + meta.unit}</b>`;
-
-    el.classList.toggle('hot', meta.group === 'temp' && value != null && value >= state.threshold);
-    el.classList.toggle('warm', meta.group === 'temp' && value != null &&
-      value >= state.threshold - 10 && value < state.threshold);
-  }
+  updateBar(host, values, 'cpu.temp', 100);
+  updateBar(host, values, 'gpu.temp', 100);
+  updateBar(host, values, 'gpu.temp_hotspot', 100);
+  CASE_FANS.forEach(([key]) => updateBar(host, values, key, 100));
+  setTemperatureState(host.querySelector('[data-card="cpu"]'), [cpu]);
+  setTemperatureState(host.querySelector('[data-card="gpu"]'), [gpu, hotspot]);
 }
 
 function renderAlerts() {

@@ -19,13 +19,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rigmon import config as config_mod  # noqa: E402
 from rigmon.storage import Store  # noqa: E402
 
-SYS_FANS = ["fan.sys1", "fan.sys2", "fan.sys3", "fan.sys4", "fan.sys5", "fan.sys6"]
+SYS_FANS = ["fan.sys1", "fan.sys2", "fan.sys3", "fan.sys4"]
 
 
 def simulate(hours: float, step: int):
     now = int(time.time())
     start = now - int(hours * 3600)
-    cpu_t, gpu_t, hot_t, vram_t, vrm_t, board_t = 40, 35, 42, 38, 34, 31
+    cpu_t, gpu_t, hot_t = 40, 35, 42
 
     for ts in range(start, now + 1, step):
         h = (ts % 86400) / 3600.0
@@ -50,36 +50,26 @@ def simulate(hours: float, step: int):
             "cpu_t": 36 + cpu_load * 0.47 + burst * 9,
             "gpu_t": 32 + gpu_load * 0.37,
             "hot_t": 32 + gpu_load * 0.37 + 10 + gpu_load * 0.09,
-            "vram_t": 35 + gpu_load * 0.36,
-            "vrm_t": 31 + cpu_load * 0.22,
-            "board_t": 29 + (cpu_load + gpu_load) * 0.07,
         }
         cpu_t = min(89.0, cpu_t + (targets["cpu_t"] - cpu_t) * 0.3 + random.gauss(0, 0.35))
         gpu_t += (targets["gpu_t"] - gpu_t) * 0.12 + random.gauss(0, 0.12)
         hot_t += (targets["hot_t"] - hot_t) * 0.15 + random.gauss(0, 0.18)
-        vram_t += (targets["vram_t"] - vram_t) * 0.10 + random.gauss(0, 0.1)
-        vrm_t += (targets["vrm_t"] - vrm_t) * 0.07 + random.gauss(0, 0.08)
-        board_t += (targets["board_t"] - board_t) * 0.04 + random.gauss(0, 0.05)
 
         def curve(temp, lo, hi, floor, ceiling):
             x = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
             return round(floor + x * (ceiling - floor))
 
         cpu_fan = curve(cpu_t, 40, 85, 25, 100)
-        sys_fan = curve(board_t, 30, 50, 20, 90)
+        sys_fan = curve(max(cpu_t, gpu_t), 35, 80, 20, 90)
         gpu_fan = 0 if gpu_t < 52 else curve(gpu_t, 52, 83, 30, 100)
 
         values = {
-            "cpu.temp": cpu_t, "cpu.temp_ccd1": cpu_t + 2.4,
-            "gpu.temp": gpu_t, "gpu.temp_hotspot": hot_t, "gpu.temp_vram": vram_t,
-            "board.temp_vrm": vrm_t, "board.temp_sys": board_t,
-            "board.temp_chipset": board_t + 8, "board.temp_socket": cpu_t - 1,
-            "cpu.load": cpu_load, "cpu.load_max": min(100, cpu_load * 1.6),
-            "gpu.load": gpu_load, "gpu.load_memctl": gpu_load * 0.6,
-            "ram.load": 38 + session * 24, "gpu.vram_load": 20 + gpu_load * 0.5,
+            "cpu.temp": cpu_t,
+            "gpu.temp": gpu_t, "gpu.temp_hotspot": hot_t,
+            "cpu.load": cpu_load, "gpu.load": gpu_load,
+            "ram.load": 38 + session * 24,
             "fan.cpu": cpu_fan, "fan.pump": min(100, cpu_fan + 12),
             "fan.gpu1": gpu_fan, "fan.gpu2": gpu_fan,
-            "fan.ezconnect": min(100, sys_fan + 10), "fan.chipset": 0,
             "cpu.power": 25 + cpu_load * 0.9, "gpu.power": 30 + gpu_load * 2.6,
             "cpu.clock": 3400 + cpu_load * 17, "gpu.clock": 900 + gpu_load * 17,
             "rpm.cpu": cpu_fan * 21 + 120, "rpm.gpu1": gpu_fan * 29,

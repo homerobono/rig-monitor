@@ -45,7 +45,6 @@ MODERN = {
             {"Text": "AMD Ryzen 7 7800X3D", "Children": [
                 {"Text": "Temperatures", "Children": [
                     _leaf("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)", "62.5 °C", "Temperature"),
-                    _leaf("/amdcpu/0/temperature/3", "CCD1 (Tdie)", "64.0 °C", "Temperature"),
                 ]},
                 {"Text": "Load", "Children": [
                     _leaf("/amdcpu/0/load/0", "CPU Total", "41.2 %", "Load"),
@@ -78,7 +77,7 @@ class TestFlatten(unittest.TestCase):
     def test_modern_payload(self):
         sensors = lhm.flatten(MODERN)
         by_id = {s.sensor_id: s for s in sensors}
-        self.assertEqual(len(sensors), 9)
+        self.assertEqual(len(sensors), 8)
         self.assertAlmostEqual(by_id["/amdcpu/0/temperature/2"].value, 62.5)
         self.assertEqual(by_id["/amdcpu/0/temperature/2"].hardware, "AMD Ryzen 7 7800X3D")
         self.assertEqual(by_id["/lpc/nct6687dr/0/control/0"].type, "Control")
@@ -109,7 +108,6 @@ class TestResolver(unittest.TestCase):
         sensors = lhm.flatten(MODERN)
         values = lhm.Resolver().read(sensors)
         self.assertAlmostEqual(values["cpu.temp"], 62.5)
-        self.assertAlmostEqual(values["cpu.temp_ccd1"], 64.0)
         self.assertAlmostEqual(values["gpu.temp_hotspot"], 59.5)
         self.assertAlmostEqual(values["fan.cpu"], 45)
         self.assertAlmostEqual(values["fan.sys1"], 30)

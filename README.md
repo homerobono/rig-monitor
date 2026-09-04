@@ -16,12 +16,13 @@ Other hardware works too — sensors are matched by name, not by index.
 - **CPU** and **GPU** overlays that put temperature, fan duty and utilisation on one
   time axis with a shared cursor, which is the view that actually answers "are the fans
   keeping up with the load?"
-- **All temperatures**: CPU Tctl/Tdie, CCD1, GPU core, **GPU hot spot**, GPU memory
-  junction, VRM MOS, motherboard, chipset — with the 85 °C limit drawn in and every
+- At-a-glance cards for **CPU temperature**, **GPU core and hot spot**, and the pump plus
+  four system fan headers. Each bar includes its darker peak extent for the visible range.
+- **All temperatures**: CPU Tctl/Tdie, GPU core and **GPU hot spot** — with the 85 °C limit drawn in and every
   excursion shaded across *all* charts, so you can see the fan response to each one.
-- **Fan speeds** as % duty for the CPU fan, pump, all six system fan headers, EZ-Connect
-  and both GPU fans, plus a separate RPM chart for spotting a stalled fan.
-- **Utilisation** (CPU, GPU, GPU memory controller, RAM, VRAM) and **power draw**.
+- **Fan speeds** as % duty for the CPU fan, pump, four system fan headers and both GPU
+  fans, plus a separate RPM chart for spotting a stalled fan.
+- **Utilisation** (CPU, GPU and RAM) and **power draw**.
 - A summary strip that names every sensor that crossed 85 °C in the visible window, how
   long it stayed there and how many separate episodes there were.
 
