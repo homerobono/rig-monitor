@@ -18,6 +18,7 @@ const state = {
   data: null,
   summary: {},
   bands: [],
+  lows: null,            // window statistics for FPS_KEY (avg, p1, p01, min, max)
   charts: [],
   threshold: 85,
 };
@@ -68,6 +69,7 @@ const CHART_SPECS = [
   {
     id: 'load', title: 'Utilisation', height: 230, group: 'load', scale: 'p',
     yrange: [0, 100],
+    extra: [{ key: 'sys.fps', scale: 'f', color: COL.yellow, width: 1.5 }],
   },
   {
     id: 'power', title: 'Power draw', height: 200, group: 'power', scale: 'w',
@@ -76,9 +78,21 @@ const CHART_SPECS = [
     id: 'rpm', title: 'Fan speeds (RPM)', height: 200, group: 'rpm', scale: 'r',
     hint: 'useful for spotting a stalled fan',
   },
+  {
+    id: 'fps', title: 'Frame rate', height: 230, wide: true,
+    hint: 'min / max per point · lows over the visible window',
+    series: [
+      { key: 'sys.fps', scale: 'f', color: COL.yellow, width: 2, fill: true, label: 'Average' },
+      { key: 'sys.fps', agg: 'max', scale: 'f', color: COL.green, dash: [5, 3], label: 'Max', off: true },
+      { key: 'sys.fps', agg: 'min', scale: 'f', color: COL.peach, dash: [5, 3], label: 'Min' },
+      { key: 'sys.fps', stat: 'p1', scale: 'f', color: COL.mauve, dash: [2, 3], label: '1% low' },
+      { key: 'sys.fps', stat: 'p01', scale: 'f', color: COL.red, dash: [2, 3], label: '0.1% low' },
+    ],
+  },
 ];
 
-const CARD_KEYS = ['cpu.temp', 'gpu.temp', 'gpu.temp_hotspot'];
+const FPS_KEY = 'sys.fps';
+const CARD_KEYS = ['cpu.temp', 'gpu.temp', 'gpu.temp_hotspot', FPS_KEY];
 const CASE_FANS = [
   ['fan.pump', 'Pump', COL.pink],
   ['fan.sys1', 'Sys 1', COL.green],
@@ -199,12 +213,16 @@ const AXIS_STYLE = {
   font: '11px ui-sans-serif, system-ui, sans-serif',
 };
 
-const UNIT_OF_SCALE = { c: '°C', p: '%', w: 'W', r: 'RPM', m: 'MHz' };
+const UNIT_OF_SCALE = { c: '°C', p: '%', w: 'W', r: 'RPM', m: 'MHz', f: 'FPS' };
+
+const available = (s) => state.metrics[s.key] && state.metrics[s.key].available;
+const seriesId = (s) => (s.agg || s.stat ? `${s.key}:${s.agg || s.stat}` : s.key);
+const seriesLabel = (s) => s.label || s.meta.short || s.meta.label;
 
 function seriesForSpec(spec) {
   if (spec.series) {
     return spec.series
-      .filter((s) => state.metrics[s.key] && state.metrics[s.key].available)
+      .filter(available)
       .map((s) => ({ ...s, meta: state.metrics[s.key] }));
   }
   return Object.values(state.metrics)
@@ -212,7 +230,9 @@ function seriesForSpec(spec) {
     .map((m) => ({
       key: m.key, scale: spec.scale, color: m.color, meta: m,
       off: !m.default_on, width: 1.5,
-    }));
+    }))
+    .concat((spec.extra || []).filter(available)
+      .map((s) => ({ ...s, meta: state.metrics[s.key] })));
 }
 
 function buildChart(spec) {
@@ -243,6 +263,7 @@ function buildChart(spec) {
       p: { range: spec.yrange || [0, 100] },
       w: { range: (u, min, max) => [0, Math.max(50, max * 1.12)] },
       r: { range: (u, min, max) => [0, Math.max(600, max * 1.12)] },
+      f: { range: (u, min, max) => [0, Math.max(60, max * 1.12)] },
     }[sc] || {};
     axes.push({
       ...AXIS_STYLE,
@@ -260,7 +281,7 @@ function buildChart(spec) {
   for (const s of list) {
     const unit = s.meta.unit;
     series.push({
-      label: s.meta.short || s.meta.label,
+      label: seriesLabel(s),
       scale: s.scale,
       stroke: s.color,
       width: s.width || 1.5,
@@ -268,9 +289,9 @@ function buildChart(spec) {
       fill: s.fill ? gradientFill(s.color) : undefined,
       spanGaps: false,
       points: { show: false },
-      show: shown[s.key] !== undefined ? shown[s.key] : !s.off,
+      show: shown[seriesId(s)] !== undefined ? shown[seriesId(s)] : !s.off,
       value: (u, v) => (v == null ? '—' : `${fmtNum(v, unit)}${unit === '%' ? '%' : ' ' + unit}`),
-      _key: s.key,
+      _key: seriesId(s),
     });
   }
 
@@ -322,7 +343,7 @@ function attachLegend(chart) {
     <button class="lg" data-i="${i + 1}" title="${s.meta.label}"
             aria-pressed="${u.series[i + 1].show}">
       <i style="background:${swatch(s)}"></i>
-      <span class="lg-name">${s.meta.short || s.meta.label}</span>
+      <span class="lg-name">${seriesLabel(s)}</span>
       <span class="lg-val" data-v>—</span>
     </button>`).join('');
 
@@ -384,6 +405,28 @@ function pickArray(key) {
   return arr || null;
 }
 
+/* Window statistics are drawn as flat lines, but only where the metric has data, so the
+   1% low of a gaming session does not stretch across the idle time around it. */
+function columnFor(s, n) {
+  let arr;
+  if (s.stat) {
+    const v = state.lows ? state.lows[s.stat] : null;
+    const base = pickArray(s.key);
+    arr = v == null || !base ? null : base.map((x) => (x == null ? null : v));
+  } else if (s.agg) {
+    const ser = state.data.series[s.key];
+    arr = ser ? ser[s.agg] : null;
+  } else {
+    arr = pickArray(s.key);
+  }
+  return arr && arr.length === n ? arr : new Array(n).fill(null);
+}
+
+function setChartData(c) {
+  const n = state.data.t.length;
+  c.u.setData([state.data.t, ...c.list.map((s) => columnFor(s, n))], true);
+}
+
 function computeBands() {
   const d = state.data;
   if (!d) return [];
@@ -423,19 +466,26 @@ async function loadSeries() {
   const keys = neededKeys();
   if (!keys.length) return;
   const w = currentWindow();
-  const data = await api('/api/series', {
-    keys: keys.join(','), from: w.from, to: w.to, points: 1100, aggs: 'avg,max',
-  });
+  const minKeys = [...new Set(state.charts.flatMap((c) =>
+    c.list.filter((s) => s.agg === 'min').map((s) => s.key)))];
+  const [data, mins] = await Promise.all([
+    api('/api/series', {
+      keys: keys.join(','), from: w.from, to: w.to, points: 1100, aggs: 'avg,max',
+    }),
+    minKeys.length ? api('/api/series', {
+      keys: minKeys.join(','), from: w.from, to: w.to, points: 1100, aggs: 'min',
+    }) : null,
+  ]);
+  if (mins) {
+    for (const [k, s] of Object.entries(mins.series)) {
+      if (data.series[k] && s.min.length === data.t.length) data.series[k].min = s.min;
+    }
+  }
   state.data = data;
   state.bands = computeBands();
 
   for (const c of state.charts) {
-    const cols = [data.t];
-    for (const k of c.keys) {
-      const arr = pickArray(k);
-      cols.push(arr && arr.length === data.t.length ? arr : new Array(data.t.length).fill(null));
-    }
-    c.u.setData(cols, true);
+    setChartData(c);
     const hint = c.card.querySelector('[data-hint]');
     if (c.spec.group === 'temp' && hint) {
       hint.textContent = data.bucket > 10
@@ -449,14 +499,20 @@ async function loadSeries() {
 }
 
 async function loadSummary() {
-  const keys = neededKeys();
+  const keys = neededKeys().filter((k) => k !== FPS_KEY);
   if (!keys.length) return;
   const w = currentWindow();
-  const res = await api('/api/summary', {
-    keys: keys.join(','), from: w.from, to: w.to, threshold: state.threshold,
-  });
+  const [res, dist] = await Promise.all([
+    api('/api/summary', {
+      keys: keys.join(','), from: w.from, to: w.to, threshold: state.threshold,
+    }),
+    available({ key: FPS_KEY })
+      ? api('/api/distribution', { key: FPS_KEY, from: w.from, to: w.to }) : null,
+  ]);
   state.summary = res.metrics || {};
+  state.lows = dist ? dist.stats : null;
   renderAlerts();
+  if (state.data) state.charts.filter((c) => c.list.some((s) => s.stat)).forEach(setChartData);
 }
 
 /* --------------------------------------------------------------- rendering */
@@ -478,12 +534,12 @@ function formatValue(value, unit) {
   return value == null ? '—' : `${fmtNum(value, unit)}${unit === '%' ? '%' : ' ' + unit}`;
 }
 
-function updateBar(host, values, key, scaleMax) {
+function updateBar(host, values, key, scaleMax,
+  peak = state.summary[key] ? state.summary[key].max : null) {
   const row = host.querySelector(`[data-bar-key="${CSS.escape(key)}"]`);
   const meta = state.metrics[key];
   if (!row || !meta) return;
   const value = metricValue(values, key);
-  const peak = state.summary[key] ? state.summary[key].max : null;
   const width = (v) => v == null ? 0 : Math.min(100, Math.max(0, (v / scaleMax) * 100));
   row.querySelector('[data-current-fill]').style.width = `${width(value)}%`;
   row.querySelector('[data-peak-fill]').style.width = `${width(peak)}%`;
@@ -519,6 +575,14 @@ function renderKpis(values) {
         <div class="k-fan-bars">
           ${CASE_FANS.map(([key, label, accent]) => barMarkup(key, label, accent)).join('')}
         </div>
+      </article>
+      <article class="kpi kpi-fps" data-card="fps" style="--accent:${COL.yellow}">
+        <div class="k-label">FPS</div>
+        <div class="k-value-row">
+          <div class="k-value"><span data-v="${FPS_KEY}">—</span><span class="u"> FPS</span></div>
+          <div class="k-secondary"><span>1% low</span><b data-v="${FPS_KEY}.p1">—</b></div>
+        </div>
+        ${barMarkup(FPS_KEY, '', COL.yellow)}
       </article>`;
   }
 
@@ -533,6 +597,14 @@ function renderKpis(values) {
   updateBar(host, values, 'gpu.temp', 100);
   updateBar(host, values, 'gpu.temp_hotspot', 100);
   CASE_FANS.forEach(([key]) => updateBar(host, values, key, 100));
+
+  const fps = metricValue(values, FPS_KEY);
+  const fpsPeak = state.lows ? state.lows.max : null;
+  host.querySelector(`[data-v="${FPS_KEY}"]`).textContent = fmtNum(fps, 'FPS');
+  host.querySelector(`[data-v="${FPS_KEY}.p1"]`).textContent =
+    fmtNum(state.lows ? state.lows.p1 : null, 'FPS');
+  updateBar(host, values, FPS_KEY, Math.max(60, Math.ceil(Math.max(fps || 0, fpsPeak || 0) / 30) * 30),
+    fpsPeak);
   setTemperatureState(host.querySelector('[data-card="cpu"]'), [cpu]);
   setTemperatureState(host.querySelector('[data-card="gpu"]'), [gpu, hotspot]);
 }

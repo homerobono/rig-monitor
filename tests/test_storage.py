@@ -159,6 +159,30 @@ class TestRetention(StoreTest):
         self.assertGreaterEqual(cov["last"], self.now - 300)
 
 
+class TestDistribution(StoreTest):
+    def test_lows_from_raw_samples(self):
+        # 200 samples: 1..200 FPS, so the 1% low is the 2nd slowest and 0.1% the slowest.
+        self.fill(self.now - 1000, 200, key="sys.fps", fn=lambda i: 200.0 - i)
+        d = self.store.distribution("sys.fps", self.now - 1000, self.now)
+        self.assertEqual(d["samples"], 200)
+        self.assertEqual((d["min"], d["max"], d["avg"]), (1.0, 200.0, 100.5))
+        self.assertEqual((d["p1"], d["p01"]), (2.0, 1.0))
+        self.assertEqual(d["resolution"], 5)
+
+    def test_rollup_only_history_uses_minute_minima(self):
+        start = self.now - 4 * 86400
+        self.store.upsert_rollups([("sys.fps", start, 600.0, 6, 40.0, 140.0),
+                                   ("sys.fps", start + 60, 720.0, 6, 90.0, 150.0)])
+        d = self.store.distribution("sys.fps", start, start + 120)
+        self.assertEqual((d["min"], d["max"], d["avg"], d["p1"]), (40.0, 150.0, 110.0, 40.0))
+        self.assertEqual(d["resolution"], 60)
+
+    def test_unknown_or_empty(self):
+        self.assertIsNone(self.store.distribution("sys.fps", self.now - 60, self.now))
+        self.fill(self.now - 600, 2, key="sys.fps")
+        self.assertIsNone(self.store.distribution("sys.fps", self.now - 60, self.now))
+
+
 class TestConcurrency(StoreTest):
     """The collector writes while several dashboards read; nothing may stall or leak."""
 

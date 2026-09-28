@@ -123,17 +123,17 @@ html, body {
 /* -------------------------------------------------------------------- KPIs */
 .kpis {
   display: grid; gap: var(--gap);
-  grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.25fr) minmax(420px, 2fr);
+  grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.25fr) minmax(420px, 2fr) minmax(170px, .8fr);
   padding: var(--gap) clamp(12px, 2.5vw, 28px) 0;
   max-width: var(--maxw); margin-inline: auto; width: 100%;
 }
-@media (max-width: 1050px) {
+@media (max-width: 1160px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .kpi-fans { grid-column: 1 / -1; }
+  .kpi-fans, .kpi-fps { grid-column: 1 / -1; }
 }
 @media (max-width: 560px) {
   .kpis { grid-template-columns: 1fr; }
-  .kpi-fans { grid-column: auto; }
+  .kpi-fans, .kpi-fps { grid-column: auto; }
 }
 .kpi {
   position: relative; overflow: hidden;

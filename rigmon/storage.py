@@ -423,6 +423,47 @@ class Store:
                 (mid, t0, t1)).fetchall()
         return rows, MINUTE
 
+    def distribution(self, key: str, t0: int, t1: int,
+                     lows: dict[str, float] | None = None) -> dict | None:
+        """Mean, extremes and low percentiles ("1% low") of one metric over a window.
+
+        Percentiles need individual samples, so they come from raw rows while those
+        still cover the window. Past raw retention the per-minute minima stand in for
+        samples, which reads pessimistic rather than hiding a stutter.
+        """
+        lows = lows or {"p1": 0.01, "p01": 0.001}
+        mid = self._ids.get(key)
+        if mid is None:
+            return None
+        t0, t1 = int(t0), int(t1)
+        raw = t0 >= int(time.time()) - self.raw_retention
+        with self._reader() as db:
+            if raw:
+                values = [v for (v,) in db.execute(
+                    "SELECT value FROM sample WHERE metric_id=? AND ts BETWEEN ? AND ? "
+                    "ORDER BY value", (mid, t0, t1))]
+                mean = sum(values) / len(values) if values else None
+            else:
+                values = [v for (v,) in db.execute(
+                    "SELECT lo FROM sample_1m WHERE metric_id=? AND bucket BETWEEN ? AND ? "
+                    "ORDER BY lo", (mid, t0, t1))]
+                total, n, hi = db.execute(
+                    "SELECT sum(total), sum(n), max(hi) FROM sample_1m "
+                    "WHERE metric_id=? AND bucket BETWEEN ? AND ?", (mid, t0, t1)).fetchone()
+                mean = total / n if n else None
+        if not values:
+            return None
+        n = len(values)
+        out = {name: round(values[max(0, math.ceil(p * n) - 1)], 1) for name, p in lows.items()}
+        out.update({
+            "avg": round(mean, 1),
+            "min": round(values[0], 1),
+            "max": round(values[-1] if raw else hi, 1),
+            "samples": n,
+            "resolution": self.step if raw else MINUTE,
+        })
+        return out
+
     def summarize(self, keys: list[str], t0: int, t1: int, threshold: float,
                   max_gap: int = 120) -> dict:
         """Per-metric min/avg/max plus contiguous episodes above `threshold`.

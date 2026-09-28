@@ -22,7 +22,11 @@ Other hardware works too — sensors are matched by name, not by index.
   excursion shaded across *all* charts, so you can see the fan response to each one.
 - **Fan speeds** as % duty for the CPU fan, pump, four system fan headers and both GPU
   fans, plus a separate RPM chart for spotting a stalled fan.
-- **Utilisation** (CPU, GPU and RAM) and **power draw**.
+- **Utilisation** (CPU, GPU and RAM, with FPS on its own axis) and **power draw**.
+- **FPS** from LibreHardwareMonitor's *Fullscreen FPS* sensor: a card with the current
+  frame rate and the 1% low, and a **Frame rate** chart with average, min, max, 1% low and
+  0.1% low. The lows are percentiles of the per-second samples in the visible window, so
+  they catch sustained dips rather than single-frame stutters.
 - A summary strip that names every sensor that crossed 85 °C in the visible window, how
   long it stayed there and how many separate episodes there were.
 

@@ -171,6 +171,12 @@ class Handler(BaseHTTPRequestHandler):
                 "metrics": self.store.summarize(keys, t0, t1, threshold),
             })
 
+        if route == "distribution":
+            key = q.get("key", ["sys.fps"])[0]
+            t0, t1 = self._window(q)
+            return self._json({"from": t0, "to": t1, "key": key,
+                               "stats": self.store.distribution(key, t0, t1)})
+
         return self._error(404, f"unknown endpoint /api/{route}")
 
     def _static(self, path: str):
